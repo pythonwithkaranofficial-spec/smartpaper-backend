@@ -9,16 +9,18 @@ async function delay(ms) {
 }
 
 async function generatePaper(prompt) {
-  const retryDelays = [3000, 5000, 8000, 12000]; // 3s, 5s, 8s, 12s
-  let currentModel = "gemini-2.5-flash";
-  let fallbackActivated = false;
+  const retryDelays = [0, 3000, 6000, 10000]; // attempt 1 is immediate, then 3s, 6s, 10s
+  const modelChain = ["gemini-2.5-flash", "gemini-2.5-flash-lite", "gemini-2.0-flash", "gemini-1.5-flash"];
+  let modelIndex = 0;
   
   const startTime = Date.now();
-  console.log("Starting Gemini Generation...");
+  console.log(`[${new Date().toISOString()}] Starting Gemini Generation...`);
 
-  for (let attempt = 1; attempt <= 5; attempt++) {
+  // Max 4 attempts based on the delays array
+  for (let attempt = 1; attempt <= 4; attempt++) {
+    const currentModel = modelChain[modelIndex];
     if (attempt > 1) {
-      console.log(`Attempt ${attempt}/5`);
+      console.log(`[${new Date().toISOString()}] Attempt ${attempt}/4 using model ${currentModel}`);
     }
 
     try {
@@ -27,36 +29,32 @@ async function generatePaper(prompt) {
         contents: prompt,
       });
 
-      if (fallbackActivated) {
-        console.log("Gemini Success (using Fallback Model)");
-      } else {
-        console.log("Gemini Success");
-      }
-      
       const totalTime = ((Date.now() - startTime) / 1000).toFixed(2);
-      console.log(`Paper Generated Successfully. Total Generation Time: ${totalTime}s`);
+      console.log(`[${new Date().toISOString()}] SUCCESS | Model: ${currentModel} | Retries: ${attempt - 1} | Time: ${totalTime}s`);
       
       return response.text;
     } catch (error) {
       const isRetryable = error.message?.includes('503') || 
                           error.message?.includes('UNAVAILABLE') || 
                           error.message?.includes('TIMEOUT') || 
+                          error.message?.includes('429') || 
                           error.message?.includes('RATE_LIMIT') || 
-                          error.message?.includes('RESOURCE_EXHAUSTED');
+                          error.message?.includes('RESOURCE_EXHAUSTED') ||
+                          error.message?.includes('DEADLINE_EXCEEDED');
 
-      if (isRetryable && attempt < 5) {
-        // If we fail on 2.5-flash twice, fallback to 2.0-flash
-        if (attempt === 2 && currentModel === "gemini-2.5-flash") {
-          currentModel = "gemini-2.0-flash";
-          fallbackActivated = true;
-          console.log("Fallback Activated: Switching to gemini-2.0-flash");
+      if (isRetryable && attempt < 4) {
+        // Fallback to the next model if available
+        if (modelIndex < modelChain.length - 1) {
+          modelIndex++;
+          console.log(`[${new Date().toISOString()}] Model Fallback Activated: Switching to ${modelChain[modelIndex]}`);
         }
 
-        const waitTime = retryDelays[attempt - 1];
-        console.log(`Gemini error (${error.message}). Retrying in ${waitTime/1000}s...`);
+        const waitTime = retryDelays[attempt];
+        console.log(`[${new Date().toISOString()}] ERROR: ${error.message}. Retrying in ${waitTime/1000}s...`);
         await delay(waitTime);
       } else {
-        console.error(`Gemini Generation Failed after ${attempt} attempts:`, error.message);
+        const totalTime = ((Date.now() - startTime) / 1000).toFixed(2);
+        console.error(`[${new Date().toISOString()}] FATAL FAILURE | Model: ${currentModel} | Retries: ${attempt - 1} | Time: ${totalTime}s | Reason:`, error.message);
         throw error;
       }
     }
