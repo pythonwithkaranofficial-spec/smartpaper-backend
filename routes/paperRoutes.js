@@ -17,7 +17,7 @@ router.post("/generate-paper", async (req, res) => {
 
     res.status(500).json({
       success: false,
-      message: error.message,
+      message: "AI service is temporarily unavailable. Please try again in a moment.",
     });
   }
 });

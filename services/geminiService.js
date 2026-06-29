@@ -10,18 +10,16 @@ async function delay(ms) {
 
 async function generatePaper(prompt) {
   const retryDelays = [0, 3000, 6000, 10000]; // attempt 1 is immediate, then 3s, 6s, 10s
-  const modelChain = ["gemini-2.5-flash", "gemini-2.5-flash-lite", "gemini-2.0-flash", "gemini-1.5-flash"];
+  const modelChain = ["gemini-2.5-flash", "gemini-2.5-flash-lite", "gemini-2.0-flash"];
   let modelIndex = 0;
   
   const startTime = Date.now();
-  console.log(`[${new Date().toISOString()}] Starting Gemini Generation...`);
+  console.log(`[MODEL CHECK] Checking available models for generation.`);
 
   // Max 4 attempts based on the delays array
   for (let attempt = 1; attempt <= 4; attempt++) {
     const currentModel = modelChain[modelIndex];
-    if (attempt > 1) {
-      console.log(`[${new Date().toISOString()}] Attempt ${attempt}/4 using model ${currentModel}`);
-    }
+    console.log(`[MODEL SELECTED] Attempt ${attempt}/4 using model: ${currentModel}`);
 
     try {
       const response = await ai.models.generateContent({
@@ -30,10 +28,11 @@ async function generatePaper(prompt) {
       });
 
       const totalTime = ((Date.now() - startTime) / 1000).toFixed(2);
-      console.log(`[${new Date().toISOString()}] SUCCESS | Model: ${currentModel} | Retries: ${attempt - 1} | Time: ${totalTime}s`);
+      console.log(`[GENERATION SUCCESS] Model: ${currentModel} | Retries: ${attempt - 1} | Time: ${totalTime}s`);
       
       return response.text;
     } catch (error) {
+      console.log(`[MODEL FAILED] Attempt ${attempt} failed with model ${currentModel}. Error: ${error.message}`);
       const isRetryable = error.message?.includes('503') || 
                           error.message?.includes('UNAVAILABLE') || 
                           error.message?.includes('TIMEOUT') || 
@@ -46,15 +45,15 @@ async function generatePaper(prompt) {
         // Fallback to the next model if available
         if (modelIndex < modelChain.length - 1) {
           modelIndex++;
-          console.log(`[${new Date().toISOString()}] Model Fallback Activated: Switching to ${modelChain[modelIndex]}`);
+          console.log(`[FALLBACK ACTIVATED] Switching to model: ${modelChain[modelIndex]}`);
         }
 
         const waitTime = retryDelays[attempt];
-        console.log(`[${new Date().toISOString()}] ERROR: ${error.message}. Retrying in ${waitTime/1000}s...`);
+        console.log(`Retrying in ${waitTime/1000}s...`);
         await delay(waitTime);
       } else {
         const totalTime = ((Date.now() - startTime) / 1000).toFixed(2);
-        console.error(`[${new Date().toISOString()}] FATAL FAILURE | Model: ${currentModel} | Retries: ${attempt - 1} | Time: ${totalTime}s | Reason:`, error.message);
+        console.error(`FATAL FAILURE | Time: ${totalTime}s | Reason:`, error.message);
         throw error;
       }
     }
