@@ -20,6 +20,9 @@ console.log("PORT =", process.env.PORT);
 console.log("MONGO_URI =", process.env.MONGO_URI);
 console.log("=================================");
 
+// Initialize Cron Jobs
+require('./cron/cacheMaintenance');
+
 // MongoDB Connection
 mongoose
   .connect(process.env.MONGO_URI)
