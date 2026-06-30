@@ -54,11 +54,11 @@ router.post("/generate-paper-stream", async (req, res) => {
 router.get("/image/:hash", async (req, res) => {
   try {
     const { hash } = req.params;
-    const image = await ImageCache.findOne({ hash });
+    const image = await ImageCache.findOne({ imageHash: hash });
     if (!image) {
       return res.status(404).send("Image not found");
     }
-    res.setHeader("Content-Type", image.contentType);
+    res.setHeader("Content-Type", image.mimeType || "image/webp");
     res.send(image.imageData);
   } catch (error) {
     console.error("Error serving image:", error);

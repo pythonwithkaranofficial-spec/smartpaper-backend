@@ -1,7 +1,5 @@
 const { GoogleGenAI } = require("@google/genai");
-const crypto = require("crypto");
-const sharp = require("sharp");
-const ImageCache = require("../models/ImageCache");
+const { generateAndCacheImage } = require("./imageService");
 
 const ai = new GoogleGenAI({
   apiKey: process.env.GEMINI_API_KEY,
@@ -41,72 +39,6 @@ async function callGeminiWithRetry(prompt, isJson = true) {
   }
 }
 
-async function generateAndCacheImage(imageMeta, onProgress) {
-  // imageMeta should contain: class, subject, chapter, diagramType, prompt, cbseLevel
-  const hashString = `${imageMeta.class}_${imageMeta.subject}_${imageMeta.chapter}_${imageMeta.diagramType}_${imageMeta.prompt}_${imageMeta.cbseLevel}`;
-  const imageHash = crypto.createHash('sha256').update(hashString).digest('hex');
-  
-  let cached = await ImageCache.findOne({ imageHash });
-  if (cached) {
-    if (onProgress) onProgress("progress", { step: `Reusing Cached Diagram: ${imageMeta.prompt}`, status: "done" });
-    console.log(`[IMAGE CACHE HIT] ${imageHash}`);
-    cached.usageCount += 1;
-    cached.lastUsed = new Date();
-    await cached.save();
-    return imageHash;
-  }
-
-  if (onProgress) onProgress("progress", { step: `Generating New Diagram: ${imageMeta.prompt}`, status: "processing" });
-  console.log(`[IMAGE GENERATING] ${imageMeta.prompt}`);
-  
-  try {
-    const response = await ai.models.generateImages({
-        model: 'imagen-3.0-generate-002',
-        prompt: `A clean, black and white educational diagram for ${imageMeta.subject}. ${imageMeta.prompt}. Line art style, clear labels if applicable, white background, suitable for printing on a test paper. No watermarks. No decorative elements.`,
-        config: {
-            numberOfImages: 1,
-            outputMimeType: 'image/png',
-        }
-    });
-
-    if (response.generatedImages && response.generatedImages.length > 0) {
-      const base64Image = response.generatedImages[0].image.imageBytes;
-      const buffer = Buffer.from(base64Image, 'base64');
-      
-      // Compress and resize using Sharp to Grayscale WebP
-      const compressedBuffer = await sharp(buffer)
-        .grayscale()
-        .resize({ width: 800, withoutEnlargement: true })
-        .webp({ quality: 80 })
-        .toBuffer();
-
-      const newCache = new ImageCache({
-        imageHash,
-        class: imageMeta.class,
-        subject: imageMeta.subject,
-        chapter: imageMeta.chapter,
-        diagramType: imageMeta.diagramType,
-        prompt: imageMeta.prompt,
-        cbseLevel: imageMeta.cbseLevel,
-        imageData: compressedBuffer,
-        mimeType: 'image/webp',
-        imageWidth: 800,
-        compressionFormat: 'webp',
-        quality: 80,
-        version: 1,
-        usageCount: 1,
-        createdAt: new Date(),
-        lastUsed: new Date()
-      });
-      await newCache.save();
-      console.log(`[IMAGE SAVED] ${imageHash}`);
-      return imageHash;
-    }
-  } catch (error) {
-    console.error(`[IMAGE GEN ERROR] ${error.message}`);
-  }
-  return null;
-}
 
 async function processQuestionsForImages(questions, paperMeta, onProgress) {
   if (!questions || !Array.isArray(questions)) return;
@@ -123,8 +55,9 @@ async function processQuestionsForImages(questions, paperMeta, onProgress) {
         cbseLevel: paperMeta.difficulty
       }, onProgress).then(hash => {
         if (hash) {
-          q.diagramData = `/api/image/${hash}`;
-          q.diagramType = "url";
+          q.diagramUrl = `/api/image/${hash}`;
+        } else {
+          q.text += "\n\n[Diagram unavailable. Please regenerate later.]";
         }
       });
       imagePromises.push(p);
@@ -141,8 +74,9 @@ async function processQuestionsForImages(questions, paperMeta, onProgress) {
             cbseLevel: paperMeta.difficulty
           }, onProgress).then(hash => {
             if (hash) {
-              sub.diagramData = `/api/image/${hash}`;
-              sub.diagramType = "url";
+              sub.diagramUrl = `/api/image/${hash}`;
+            } else {
+              sub.text += "\n\n[Diagram unavailable. Please regenerate later.]";
             }
           });
           imagePromises.push(subP);
